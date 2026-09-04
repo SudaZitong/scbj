@@ -1,0 +1,16 @@
+{
+  "name": "scbj-server",
+  "version": "1.0.0",
+  "description": "校园留言板后端服务器",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "sql.js": "^1.10.3",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2"
+  }
+}
