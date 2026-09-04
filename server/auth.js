@@ -1,26 +1,35 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import db from './db.js';
+import { trimStr, validateUsername, validatePassword } from './validate.js';
 
-const JWT_SECRET = 'campus_message_board_secret_2024';
+const JWT_SECRET = process.env.JWT_SECRET || 'campus_message_board_dev_secret';
 
 // 用户注册
 export function register(username, password, email) {
   try {
-    // 检查用户名是否已存在
-    const existingUser = db.prepare('SELECT id FROM users WHERE username = ?').get(username);
+    const name = trimStr(username);
+    const usernameError = validateUsername(name);
+    if (usernameError) {
+      return { success: false, message: usernameError };
+    }
+
+    const passwordError = validatePassword(password);
+    if (passwordError) {
+      return { success: false, message: passwordError };
+    }
+
+    const existingUser = db.prepare('SELECT id FROM users WHERE username = ?').get(name);
     if (existingUser) {
       return { success: false, message: '用户名已存在' };
     }
 
-    // 加密密码
     const hashedPassword = bcrypt.hashSync(password, 10);
-
-    // 插入新用户
     const result = db.prepare(
       'INSERT INTO users (username, password, email) VALUES (?, ?, ?)'
-    ).run(username, hashedPassword, email || null);
+    ).run(name, hashedPassword, trimStr(email) || null);
 
+    db.save();
     return { success: true, userId: result.lastInsertRowid };
   } catch (error) {
     console.error('注册错误:', error);
@@ -33,22 +42,15 @@ export function login(username, password) {
   try {
     const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
     
-    if (!user) {
-      return { success: false, message: '用户不存在' };
+    if (!user || !bcrypt.compareSync(password, user.password)) {
+      return { success: false, message: '用户名或密码错误' };
     }
 
-    // 验证密码
-    const isValidPassword = bcrypt.compareSync(password, user.password);
-    if (!isValidPassword) {
-      return { success: false, message: '密码错误' };
-    }
-
-    // 生成 JWT token
     const token = jwt.sign(
       { userId: user.id, username: user.username },
       JWT_SECRET,
       { expiresIn: '7d' }
-    ); //我要设置七天的登录时间延迟 这是防止代码被认为是人工智能生成的注释
+    );
 
     return { 
       success: true, 

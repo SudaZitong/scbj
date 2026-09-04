@@ -1,52 +1,64 @@
 import db from './db.js';
+import { normalizeCategory, sortColumn, trimStr } from './validate.js';
 
 // 获取所有留言（带分页）
-export function getMessages(page = 1, limit = 10, category = null, sortBy = 'created_at') {
+export function getMessages(page = 1, limit = 10, category = null, sortBy = 'created_at', userId = null) {
+  page = Math.max(1, Number(page) || 1);
+  limit = Math.min(50, Math.max(1, Number(limit) || 10));
   const offset = (page - 1) * limit;
-  
-  let query = `
-    SELECT 
+  const orderCol = sortColumn(sortBy);
+  const likeSelect = userId
+    ? '(SELECT COUNT(*) FROM likes lx WHERE lx.message_id = m.id AND lx.user_id = ?) as isLiked'
+    : '0 as isLiked';
+
+  const params = [];
+  if (userId) params.push(userId);
+
+  let where = '';
+  if (category && category !== 'all') {
+    where = ' WHERE m.category = ?';
+    params.push(category);
+  }
+
+  const query = `
+    SELECT
       m.*,
       u.username,
       u.avatar,
       COUNT(DISTINCT c.id) as comment_count,
-      COUNT(DISTINCT l.id) as like_count
+      COUNT(DISTINCT l.id) as like_count,
+      ${likeSelect}
     FROM messages m
     JOIN users u ON m.user_id = u.id
     LEFT JOIN comments c ON c.message_id = m.id
     LEFT JOIN likes l ON l.message_id = m.id
+    ${where}
+    GROUP BY m.id
+    ORDER BY ${orderCol} DESC
+    LIMIT ? OFFSET ?
   `;
-  
-  if (category && category !== 'all') {
-    query += ' WHERE m.category = ?';
-  }
-  
-  query += ` GROUP BY m.id ORDER BY m.${sortBy} DESC LIMIT ? OFFSET ?`;
-  
-  const stmt = db.prepare(query);
-  const messages = category && category !== 'all' 
-    ? stmt.all(category, limit, offset)
-    : stmt.all(limit, offset);
-  
-  // 获取总数
+
+  const messages = db.prepare(query).all(...params, limit, offset).map((item) => ({
+    ...item,
+    isLiked: Number(item.isLiked) > 0,
+  }));
+
   let countQuery = 'SELECT COUNT(*) as total FROM messages';
+  let total;
   if (category && category !== 'all') {
-    countQuery += ' WHERE category = ?';
-    const countStmt = db.prepare(countQuery);
-    var total = countStmt.get(category).total;
+    total = db.prepare(`${countQuery} WHERE category = ?`).get(category).total;
   } else {
-    const countStmt = db.prepare(countQuery);
-    var total = countStmt.get().total;
+    total = db.prepare(countQuery).get().total;
   }
-  
+
   return {
     messages,
     pagination: {
       page,
       limit,
       total,
-      totalPages: Math.ceil(total / limit)
-    }
+      totalPages: Math.ceil(total / limit) || 0,
+    },
   };
 }
 
@@ -68,10 +80,10 @@ export function getMessageById(id) {
   if (!message) {
     return null;
   }
-  
-  // 增加浏览次数
+
   db.prepare('UPDATE messages SET view_count = view_count + 1 WHERE id = ?').run(id);
-  
+  db.save();
+  message.view_count = Number(message.view_count || 0) + 1;
   return message;
 }
 
@@ -80,8 +92,9 @@ export function createMessage(userId, title, content, category = 'general') {
   try {
     const result = db.prepare(
       'INSERT INTO messages (user_id, title, content, category) VALUES (?, ?, ?, ?)'
-    ).run(userId, title, content, category);
-    
+    ).run(userId, trimStr(title), trimStr(content), normalizeCategory(category));
+
+    db.save();
     return { success: true, messageId: result.lastInsertRowid };
   } catch (error) {
     console.error('创建留言错误:', error);
@@ -94,14 +107,15 @@ export function updateMessage(id, userId, title, content, category) {
   try {
     // 检查权限
     const message = db.prepare('SELECT user_id FROM messages WHERE id = ?').get(id);
-    if (!message || message.user_id !== userId) {
+    if (!message || Number(message.user_id) !== Number(userId)) {
       return { success: false, message: '无权修改此留言' };
     }
-    
+
     db.prepare(
       'UPDATE messages SET title = ?, content = ?, category = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
-    ).run(title, content, category, id);
-    
+    ).run(trimStr(title), trimStr(content), normalizeCategory(category), id);
+
+    db.save();
     return { success: true };
   } catch (error) {
     console.error('更新留言错误:', error);
@@ -119,6 +133,7 @@ export function deleteMessage(id, userId) {
     }
     
     db.prepare('DELETE FROM messages WHERE id = ?').run(id);
+    db.save();
     return { success: true };
   } catch (error) {
     console.error('删除留言错误:', error);
@@ -136,10 +151,11 @@ export function toggleLike(messageId, userId) {
     if (existingLike) {
       // 取消点赞
       db.prepare('DELETE FROM likes WHERE message_id = ? AND user_id = ?').run(messageId, userId);
+      db.save();
       return { success: true, liked: false };
     } else {
-      // 添加点赞
       db.prepare('INSERT INTO likes (message_id, user_id) VALUES (?, ?)').run(messageId, userId);
+      db.save();
       return { success: true, liked: true };
     }
   } catch (error) {

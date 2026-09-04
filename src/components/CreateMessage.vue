@@ -76,7 +76,9 @@ async function handleSubmit() {
           v-model="form.content"
           placeholder="请输入内容..."
           rows="8"
+          maxlength="5000"
         ></textarea>
+        <p class="char-count">{{ form.content.length }} / 5000</p>
       </div>
       
       <div v-if="error" class="error-message">{{ error }}</div>
@@ -164,6 +166,13 @@ async function handleSubmit() {
 
 .form-group textarea {
   resize: vertical;
+}
+
+.char-count {
+  text-align: right;
+  color: #999;
+  font-size: 12px;
+  margin-top: 6px;
 }
 
 .error-message {

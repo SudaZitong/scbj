@@ -21,8 +21,9 @@ export function createComment(messageId, userId, content, parentId = null) {
   try {
     const result = db.prepare(
       'INSERT INTO comments (message_id, user_id, content, parent_id) VALUES (?, ?, ?, ?)'
-    ).run(messageId, userId, content, parentId);
-    
+    ).run(messageId, userId, String(content).trim(), parentId);
+
+    db.save();
     return { success: true, commentId: result.lastInsertRowid };
   } catch (error) {
     console.error('创建评论错误:', error);
@@ -40,6 +41,7 @@ export function deleteComment(id, userId) {
     }
     
     db.prepare('DELETE FROM comments WHERE id = ?').run(id);
+    db.save();
     return { success: true };
   } catch (error) {
     console.error('删除评论错误:', error);

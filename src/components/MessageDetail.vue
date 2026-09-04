@@ -2,6 +2,7 @@
 import { ref, onMounted, computed } from 'vue';
 import { getMessageById, getComments, createComment, deleteComment, toggleLike, deleteMessage } from '../api/index.js';
 import { isLoggedIn } from '../api/request.js';
+import { formatTime } from '../utils/time.js';
 
 const props = defineProps({
   messageId: Number,
@@ -125,29 +126,6 @@ async function handleDeleteMessage() {
   }
 }
 
-// 格式化时间
-function formatTime(dateStr) {
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diff = now - date;
-  
-  const minute = 60 * 1000;
-  const hour = 60 * minute;
-  const day = 24 * hour;
-  
-  if (diff < minute) {
-    return '刚刚';
-  } else if (diff < hour) {
-    return Math.floor(diff / minute) + '分钟前';
-  } else if (diff < day) {
-    return Math.floor(diff / hour) + '小时前';
-  } else if (diff < 7 * day) {
-    return Math.floor(diff / day) + '天前';
-  } else {
-    return date.toLocaleDateString('zh-CN');
-  }
-}
-
 const categoryMap = {
   general: '综合',
   study: '学习',
@@ -202,7 +180,6 @@ onMounted(() => {
         >
           {{ message.isLiked ? '❤️' : '🤍' }} {{ message.like_count }}
         </button>
-        <!-- 谁家点赞emo这么难找 -->
       </div>
     </article>
     
@@ -215,6 +192,7 @@ onMounted(() => {
           v-model="commentContent"
           placeholder="写下你的评论..."
           rows="3"
+          maxlength="500"
         ></textarea>
         <button 
           class="submit-btn" 

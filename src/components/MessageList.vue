@@ -2,6 +2,7 @@
 import { ref, onMounted, watch } from 'vue';
 import { getMessages, toggleLike } from '../api/index.js';
 import { isLoggedIn } from '../api/request.js';
+import { formatTime } from '../utils/time.js';
 
 const props = defineProps({
   category: {
@@ -21,6 +22,11 @@ const pagination = ref({
   totalPages: 0
 });
 const sortBy = ref('created_at');
+const sortOptions = [
+  { value: 'created_at', label: '最新' },
+  { value: 'view_count', label: '最热' },
+  { value: 'like_count', label: '点赞' },
+];
 
 // 分类映射
 const categoryMap = {
@@ -72,31 +78,7 @@ async function handleLike(messageId, event) {
   }
 }
 
-// 格式化时间
-function formatTime(dateStr) {
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diff = now - date;
-  
-  const minute = 60 * 1000;
-  const hour = 60 * minute;
-  const day = 24 * hour;
-  
-  if (diff < minute) {
-    return '刚刚';
-  } else if (diff < hour) {
-    return Math.floor(diff / minute) + '分钟前';
-  } else if (diff < day) {
-    return Math.floor(diff / hour) + '小时前';
-  } else if (diff < 7 * day) {
-    return Math.floor(diff / day) + '天前';
-  } else {
-    return date.toLocaleDateString('zh-CN');
-  }
-}
-
-// 监听分类变化
-watch(() => props.category, () => {
+watch([() => props.category, sortBy], () => {
   pagination.value.page = 1;
   loadMessages();
 });
@@ -108,6 +90,18 @@ onMounted(() => {
 
 <template>
   <div class="message-list">
+    <div class="list-toolbar">
+      <button
+        v-for="option in sortOptions"
+        :key="option.value"
+        class="sort-btn"
+        :class="{ active: sortBy === option.value }"
+        @click="sortBy = option.value"
+      >
+        {{ option.label }}
+      </button>
+    </div>
+
     <div v-if="loading" class="loading">加载中...</div>
     
     <div v-else-if="messages.length === 0" class="empty">
@@ -154,9 +148,7 @@ onMounted(() => {
         </div>
       </div>
     </div>
-    <!-- 拷打ChatGpt以获取表情符号： -->
-     <!-- 提示词：输出【点赞 未点赞 评论 眼睛】的emotion -->
-    
+
     <!-- 分页 -->
     <div v-if="pagination.totalPages > 1" class="pagination">
       <button 
@@ -180,6 +172,28 @@ onMounted(() => {
 .message-list {
   max-width: 900px;
   margin: 0 auto;
+}
+
+.list-toolbar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.sort-btn {
+  padding: 6px 14px;
+  border: 1px solid #e0e0e0;
+  background: white;
+  border-radius: 16px;
+  color: #666;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.sort-btn.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-color: transparent;
 }
 
 .loading, .empty {

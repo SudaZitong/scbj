@@ -1,15 +1,17 @@
 import http from "http";
-import url from "url";
-import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
-
 import { initDatabase } from "./db.js";
 import * as auth from "./auth.js";
 import * as messages from "./messages.js";
 import * as comments from "./comments.js";
+import {
+  validateUsername,
+  validatePassword,
+  validateTitle,
+  validateContent,
+} from "./validate.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const PORT = Number(process.env.PORT) || 1556;
+const MAX_BODY_BYTES = 1024 * 1024;
 
 // 解析 JSON 请求体
 function parseBody(req) {
@@ -17,12 +19,16 @@ function parseBody(req) {
     let body = "";
     req.on("data", (chunk) => {
       body += chunk.toString();
+      if (body.length > MAX_BODY_BYTES) {
+        req.destroy();
+        reject(Object.assign(new Error("请求体过大"), { statusCode: 413 }));
+      }
     });
     req.on("end", () => {
       try {
         resolve(body ? JSON.parse(body) : {});
       } catch (e) {
-        reject(e);
+        reject(Object.assign(new Error("JSON 格式错误"), { statusCode: 400 }));
       }
     });
     req.on("error", reject);
@@ -54,8 +60,9 @@ function getUserIdFromRequest(req) {
 
 // 路由处理
 async function handleRequest(req, res) {
-  const parsedUrl = url.parse(req.url, true);
+  const parsedUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
   const pathname = parsedUrl.pathname;
+  const query = Object.fromEntries(parsedUrl.searchParams);
   const method = req.method;
 
   // 处理 CORS 预检请求 ； 跨域问题处理
@@ -78,10 +85,12 @@ async function handleRequest(req, res) {
         const body = await parseBody(req);
         const { username, password, email } = body;
 
-        if (!username || !password) {
+        const usernameError = validateUsername(username);
+        const passwordError = validatePassword(password);
+        if (usernameError || passwordError) {
           return sendJSON(res, 400, {
             success: false,
-            message: "用户名和密码不能为空",
+            message: usernameError || passwordError,
           });
         }
 
@@ -122,12 +131,14 @@ async function handleRequest(req, res) {
 
       // 留言
       if (pathname === "/api/messages" && method === "GET") {
-        const { page, limit, category, sortBy } = parsedUrl.query;
+        const { page, limit, category, sortBy } = query;
+        const userId = getUserIdFromRequest(req);
         const result = messages.getMessages(
           parseInt(page) || 1,
           parseInt(limit) || 10,
           category,
           sortBy || "created_at",
+          userId,
         );
         return sendJSON(res, 200, { success: true, ...result });
       }
@@ -141,10 +152,12 @@ async function handleRequest(req, res) {
         const body = await parseBody(req);
         const { title, content, category } = body;
 
-        if (!title || !content) {
+        const titleError = validateTitle(title);
+        const contentError = validateContent(content);
+        if (titleError || contentError) {
           return sendJSON(res, 400, {
             success: false,
-            message: "标题和内容不能为空",
+            message: titleError || contentError,
           });
         }
 
@@ -184,6 +197,14 @@ async function handleRequest(req, res) {
         const id = parseInt(pathname.split("/").pop());
         const body = await parseBody(req);
         const { title, content, category } = body;
+        const titleError = validateTitle(title);
+        const contentError = validateContent(content);
+        if (titleError || contentError) {
+          return sendJSON(res, 400, {
+            success: false,
+            message: titleError || contentError,
+          });
+        }
 
         const result = messages.updateMessage(
           id,
@@ -243,10 +264,11 @@ async function handleRequest(req, res) {
         const body = await parseBody(req);
         const { content, parentId } = body;
 
-        if (!content) {
+        const commentError = validateContent(content, 500);
+        if (commentError) {
           return sendJSON(res, 400, {
             success: false,
-            message: "评论内容不能为空",
+            message: commentError === "内容不能为空" ? "评论内容不能为空" : commentError,
           });
         }
 
@@ -272,13 +294,17 @@ async function handleRequest(req, res) {
         return sendJSON(res, status, result);
       }
 
-      // fallback
       return sendJSON(res, 404, { success: false, message: "API 不存在" });
     }
+
+    return sendJSON(res, 404, { success: false, message: "Not Found" });
   } catch (error) {
-    //外层fallback（我怎么老被炸）
     console.error("请求处理错误:", error);
-    sendJSON(res, 500, { success: false, message: "服务器内部错误" });
+    const status = error.statusCode || 500;
+    sendJSON(res, status, {
+      success: false,
+      message: status === 500 ? "服务器内部错误" : error.message,
+    });
   }
 }
 
@@ -287,9 +313,8 @@ initDatabase()
   .then(() => {
     const server = http.createServer(handleRequest);
 
-    server.listen(1556, () => {
-      console.log(`API地址 http://localhost:1556`);
-
+    server.listen(PORT, () => {
+      console.log(`API 地址 http://localhost:${PORT}`);
     });
 
     server.on("error", (err) => {

@@ -86,6 +86,16 @@ async function handleRegister() {
     return;
   }
   
+  if (registerForm.value.username.trim().length < 2) {
+    error.value = '用户名至少 2 个字符';
+    return;
+  }
+
+  if (registerForm.value.password.length < 6) {
+    error.value = '密码至少 6 位';
+    return;
+  }
+
   if (registerForm.value.password !== registerForm.value.confirmPassword) {
     error.value = '两次输入的密码不一致';
     return;

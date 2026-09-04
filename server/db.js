@@ -20,6 +20,8 @@ async function initDatabase() {
     db = new SQL.Database();
   }
   
+  db.run('PRAGMA foreign_keys = ON');
+
   // 创建表
   db.run(`
     CREATE TABLE IF NOT EXISTS users (
@@ -73,6 +75,11 @@ async function initDatabase() {
     )
   `);
   
+  db.run('CREATE INDEX IF NOT EXISTS idx_messages_user ON messages(user_id)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_messages_category ON messages(category)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_comments_message ON comments(message_id)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_likes_message ON likes(message_id)');
+
   saveDatabase();
   console.log('数据库初始化完成');
   return db;
@@ -87,11 +94,18 @@ function saveDatabase() {
   }
 }
 
-// 定期保存
+// 定期保存，防止进程异常退出丢数据
 setInterval(() => {
   saveDatabase();
-  console.log('数据库已自动保存');
-}, 60000); // 每分钟保存一次
+}, 60000);
+
+function shutdown() {
+  saveDatabase();
+  process.exit(0);
+}
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
 
 export { initDatabase };
 
